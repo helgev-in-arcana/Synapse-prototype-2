@@ -1,0 +1,12 @@
+[package]
+name = "synapse-host-abi"
+version = "0.1.0"
+edition = "2021"
+description = "ホスト側 C-ABI 境界層。個別モジュール/ノードのロードと呼び出しを安全な Rust に写す（unsafe をここに閉じ込める）。グラフ・評価器・キャッシュは扱わない"
+
+[lib]
+name = "synapse_host_abi"
+
+[dependencies]
+synapse-abi = { path = "../synapse-abi" }
+libloading = "0.8"

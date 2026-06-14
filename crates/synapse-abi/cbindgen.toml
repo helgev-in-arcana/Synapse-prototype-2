@@ -1,0 +1,101 @@
+language = "C"
+pragma_once = false
+include_guard = "SYNAPSE_ABI_H"
+cpp_compat = true
+style = "both"
+usize_is_size_t = true
+documentation = true
+documentation_style = "c"
+no_includes = true
+sys_includes = ["stdint.h", "stddef.h", "stdbool.h", "assert.h"]
+
+header = """
+/* ============================================================================
+ *  自動生成ファイル — 手で編集しないこと。
+ *  正本(SSoT)は Rust の synapse-abi crate (src/lib.rs, src/abi_strings.rs)。
+ *  再生成: `cargo build`、または
+ *    cbindgen --config cbindgen.toml -o synapse_abi.h .
+ *    （CLI 直叩きは文字列 ABI 定数を出さない。完全な生成は cargo build 経由）。
+ * ----------------------------------------------------------------------------
+ *  Synapse プラグイン C ABI  (draft v0.5)
+ *
+ *  ■ これは何か
+ *    ノードベース映像合成/編集フレームワーク \"Synapse\" のプラグイン C ABI。
+ *    UX は Blender の shader/geometry nodes の感触を目標にしつつ基盤は独自 ABI。
+ *
+ *  ■ 最上位の方針
+ *    - 最小カーネル: 複雑さはホスト/SDK に集中。小さな契約面を保ち、プラグイン
+ *      開発を AI/コミュニティに委譲できるようにする。
+ *    - OFX 由来のパターン(単一エントリ/不透明ハンドル/純粋 C ABI/スイート版数)は
+ *      採るが、画像エフェクト中心モデルや外部ガバナンスは継がない。
+ *    - データ宣言と振る舞いを分離。ホストはデータ意味論に不可知。
+ *
+ *  ■ アーキテクチャの柱 (括弧内は理由)
+ *    - Pull型・スタック駆動・非再帰評価器 (FFI 再帰を避ける: 再入/ホットリロード/
+ *      キャンセル/並列スケジューリングが壊れるため)。末尾の評価ループ参照。
+ *    - 2フェーズ: declare(データ無し交渉) + process(要求バッファのみ受領)。
+ *    - 2種のプラグイン: 型パッケージ(register_type) と 処理プラグイン(register_node)。
+ *    - ワイヤは {URID, ptr, size}。URID はセッション安定で IPC/永続化に安全。
+ *      vtable はプロセスローカルで揮発するので lookup で引く。
+ *    - 出力型は1つ固定(キャッシュキーが (node,params,frame,region) に縮む)。入力は多態。
+ *    - 直列が保守的既定、並列は caps による宣言制 opt-in。
+ *    - このヘッダは最下層の契約。開発体験(静的/動的ノードの2トレイト等)は上の SDK 層。
+ *
+ *  ■ ロードマップ (このヘッダにまだ無い/部分的なもの)
+ *    - 型伝播 方式b(connected_type) への移行、ホスト側 convert ノード自動挿入。
+ *    - 二層 SDK API(簡易 eager + 再開可能 lazy)。これが入ると negotiate は反復poll化し得る。
+ *    - Salsa 風インクリメンタル計算層、ROI/領域交渉、並列軸2/4。
+ *    - canonical 型集合の確定、field 意味論(意図的に延期)、粗粒度ホットリロード。
+ *
+ *  ■ 用語
+ *    URID=URI のセッション安定整数 / SVO=8byte以下を ptr に直接格納 /
+ *    型パッケージ=データ型登録 / 処理プラグイン=ノードロジック登録 /
+ *    multi-input=1ポートで N リンク受理(fan-in) / canonical型=ホストが理解する標準型(Tier A) /
+ *    方式a/b=汎用ノード出力型の ANY 解決 / 接続入力型の伝播 /
+ *    dirty伝播=状態変更で当該+下流のキャッシュ無効化 / passthrough=未知型の素通し転送。
+ *
+ *  詳細な決定根拠・却下案・未決事項は ADR (docs/synapse_adr.md) を参照。
+ * ========================================================================== */
+"""
+
+trailer = """
+/* 末尾(インクルードガード外)に置かれるため、補助定義には独自ガードを付ける。 */
+#ifndef SYNAPSE_ABI_HELPERS_INCLUDED
+#define SYNAPSE_ABI_HELPERS_INCLUDED
+
+/* ---- インライン補助関数 (cbindgen は本体を生成しないので C 側で付与) ------- */
+static inline bool syn_is_inline(const SynValue *v) { return v->size <= sizeof(void *); }
+static inline bool syn_is_empty (const SynValue *v) { return v->type_id == SYN_URID_INVALID; }
+
+static_assert(sizeof(SynUrid) == 4, \"type_id 空間を安定させるため SynUrid は 32-bit\");
+
+#endif /* SYNAPSE_ABI_HELPERS_INCLUDED */
+
+/* ============================================================================
+ *  ホスト側の評価ループ(非再帰・スタック駆動・pull) — v1 の2パス形
+ * ----------------------------------------------------------------------------
+ *   create(inst)                 // 1回(キャッシュ)
+ *   declare(inst, builder)       // トポロジ/状態変化時に冪等再宣言
+ *   for each (output, frame) demanded:
+ *       negotiate(inst, ctx)     // データ無し。必要入力を request で1回列挙
+ *       上流を作業スタックに push して全要求を充足(FFIは再帰しない)
+ *       process(inst, ctx)       // get_input で読み(値渡し), set_output/passthrough で書く
+ * ========================================================================== */
+"""
+
+[const]
+allow_static_const = false
+allow_constexpr = false
+
+[export]
+item_types = ["constants", "enums", "structs", "unions", "typedefs", "opaque", "functions"]
+include = [
+  "SynStatus", "SynUrid", "SynTypeId", "SynHost", "SynModuleEntryFn",
+  "SynValue",
+  # SynNode / SynDeclBuilder / SynEvalCtx は不透明ハンドル。Rust 側は PhantomData 構造体で
+  # cbindgen が本体を出さないため、前方 typedef を build.rs (after_includes) で注入する。
+  # ここに含めると将来の cbindgen 版が空 struct 本体を出して前方宣言と衝突し得るので含めない。
+  "SynTypeVTable", "SynTypeRegistrySuite", "SynUridSuite",
+  "SynDeclSuite", "SynRational", "SynRequest", "SynEvalSuite",
+  "SynNodeDesc", "SynUiExt", "SynHostStruct", "SynModule",
+]

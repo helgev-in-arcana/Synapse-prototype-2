@@ -1,0 +1,13 @@
+[package]
+name = "synapse-host-mini"
+version = "0.1.0"
+edition = "2021"
+description = "最小ホスト: プラグインをロードし declare→negotiate→process を一周させる検証バイナリ"
+
+[[bin]]
+name = "synapse-host-mini"
+path = "src/main.rs"
+
+[dependencies]
+synapse-abi = { path = "../synapse-abi" }
+libloading = "0.8"

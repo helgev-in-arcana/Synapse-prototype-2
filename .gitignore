@@ -1,0 +1,4 @@
+/target
+
+# ローカル専用の設計メモ（正本 ADR は crates/synapse-abi/docs/ にコミットする）
+/.local-docs

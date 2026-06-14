@@ -1,0 +1,12 @@
+[package]
+name = "test-scalar-plugin"
+version = "0.1.0"
+edition = "2021"
+description = "最小プラグイン: const / add ノード。synapse-abi を raw に実装し ABI を検証する"
+
+[lib]
+name = "test_scalar_plugin"
+crate-type = ["cdylib"]
+
+[dependencies]
+synapse-abi = { path = "../synapse-abi" }

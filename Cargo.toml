@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "crates/synapse-abi",
+    "crates/synapse-host-mini",
+    "crates/test-scalar-plugin",
+    "crates/synapse-host-abi",
+    "crates/synapse-sdk",
+    "crates/test-scalar-sdk",
+]
+resolver = "2"

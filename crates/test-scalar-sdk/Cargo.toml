@@ -1,0 +1,12 @@
+[package]
+name = "test-scalar-sdk"
+version = "0.1.0"
+edition = "2021"
+description = "synapse-sdk で書いた const/add/subfold プラグイン。raw 版（test-scalar-plugin）と等価で、SDK の DX とゼロ漏れを検証する"
+
+[lib]
+name = "test_scalar_sdk"
+crate-type = ["cdylib"]
+
+[dependencies]
+synapse-sdk = { path = "../synapse-sdk" }
