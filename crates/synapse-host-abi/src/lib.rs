@@ -137,7 +137,7 @@ const PTR_SIZE: usize = core::mem::size_of::<*mut c_void>();
 pub struct OwnedValue {
     type_id: SynTypeId,
     size: usize,
-    bytes: Vec<u8>, // 長さは size.max(8)
+    bytes: Vec<u8>, // 長さは size.max(PTR_SIZE)
 }
 
 impl OwnedValue {

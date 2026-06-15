@@ -1,9 +1,11 @@
 //! 最小プラグイン（raw / SDK ラッパー無し）。
 //!
-//! 2 ノードを提供する:
-//!   - `synapse.test.const`: 入力 0 / 出力 1(float)。内部パラメータ value(f32) を持ち
+//! 3 ノードを提供する:
+//!   - `synapse.test.const`  : 入力 0 / 出力 1(float)。内部パラメータ value(f32) を持ち
 //!     save_state/load_state で永続化する。
-//!   - `synapse.test.add`  : 入力 2(float, 既定値あり) / 出力 1(float)。out = a + b。
+//!   - `synapse.test.add`    : 入力 2(float, 既定値あり) / 出力 1(float)。out = a + b。
+//!   - `synapse.test.subfold`: 入力 1(float, multi-input/fan-in) / 出力 1(float)。
+//!     out = in[0] - in[1] - … - in[N-1]（順序依存の畳み込み減算）。
 //!
 //! ABI を意図的に「手で」叩くことで、SDK が将来吸収すべき痛点を洗い出す目的のコード。
 

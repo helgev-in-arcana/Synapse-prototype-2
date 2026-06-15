@@ -128,7 +128,7 @@ opaque_handle!(
 pub struct SynValue {
     /// 実体型の URID。0 は空。
     pub type_id: SynTypeId,
-    /// size>8: 領域ポインタ / size<=8: 値そのもの(SVO) / opaque型: 不透明ハンドル。
+    /// size>ptr幅: 領域ポインタ / size<=ptr幅: 値そのもの(SVO) / opaque型: 不透明ハンドル。
     pub ptr: *mut c_void,
     /// 意味的なバイト数。
     pub size: usize,
@@ -257,8 +257,8 @@ pub struct SynRequest {
 /// negotiate/process から使う評価操作群。
 ///
 /// データ受け渡しの規約: `SynValue` は常に**値渡し**で境界を越える（構造体自体はコピー）。
-/// 参照は SynValue 内の `ptr` を通してのみ行い、大型データ(>8byte)の `ptr` が指す領域は
-/// ホスト所有・その呼び出し中のみ借用可能。SVO(≤8byte)は値が `ptr` フィールドに入った
+/// 参照は SynValue 内の `ptr` を通してのみ行い、大型データ(>ptr幅)の `ptr` が指す領域は
+/// ホスト所有・その呼び出し中のみ借用可能。SVO(≤ptr幅)は値が `ptr` フィールドに入った
 /// まま丸ごとコピーされるので、プラグインローカルがホストから見えない問題は起きない。
 #[repr(C)]
 pub struct SynEvalSuite {
@@ -273,7 +273,7 @@ pub struct SynEvalSuite {
     /// デフォルトの無い未接続ソケットは type_id==0（空）→plugin が処理する。
     pub get_input: Option<unsafe extern "C" fn(ctx: *mut SynEvalCtx, input_index: u32, link_index: u32) -> SynValue>,
 
-    /// process 中: 大型(>8byte)出力用にホスト所有バッファを確保して先頭ポインタを返す。
+    /// process 中: 大型(>ptr幅)出力用にホスト所有バッファを確保して先頭ポインタを返す。
     /// プラグインはここへ書き、その ptr を SynValue.ptr に入れて set_output に値渡しする。
     /// 確保はホスト（ADR-012）。SVO 型は確保不要（set_output だけで完結）。失敗時 NULL。
     pub alloc: Option<unsafe extern "C" fn(ctx: *mut SynEvalCtx, size: usize) -> *mut c_void>,
