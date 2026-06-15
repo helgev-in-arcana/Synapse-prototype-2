@@ -4,7 +4,9 @@
 //! (`cargo build` の build.rs か、`cbindgen --config cbindgen.toml -o synapse_abi.h .`)。
 //!
 //! 生成される C を「行儀のよい C」に保つための方針:
-//!   - 型は `#[repr(C)]`。ハンドルは中身のない enum にして C 側は不完全型 `Foo *`。
+//!   - 型は `#[repr(C)]`。ハンドルは Nomicon 推奨のゼロサイズ struct + PhantomData
+//!     （空 enum は uninhabited で参照を作ると即 UB のため不採用）にして、C 側は
+//!     不完全型 `typedef struct Foo Foo;`（`Foo *` として使用）。
 //!   - コールバックは `Option<unsafe extern "C" fn ...>`（= NULL 可能な C 関数ポインタ）。
 //!   - 定数は `pub const` とし、cbindgen 設定で `#define` に落とす（enum の基底型は
 //!     処理系定義なので ABI では #define が安全、という方針を Rust 側でも踏襲）。
