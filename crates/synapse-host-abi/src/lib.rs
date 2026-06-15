@@ -133,7 +133,7 @@ fn cstr_to_string(p: *const c_char) -> String {
 
 const PTR_SIZE: usize = core::mem::size_of::<*mut c_void>();
 
-/// ホスト所有の値。SVO（≤8byte）も大型も、先頭から `size` バイトに実体を持つ。
+/// ホスト所有の値。SVO（≤ptr幅）も大型も、先頭から `size` バイトに実体を持つ。
 pub struct OwnedValue {
     type_id: SynTypeId,
     size: usize,
@@ -195,7 +195,7 @@ impl OwnedValue {
         }
     }
 
-    /// プラグインへ値渡しする `SynValue` を組み立てる。≤8byte は SVO（ptr フィールドへインライン）。
+    /// プラグインへ値渡しする `SynValue` を組み立てる。≤ptr幅 は SVO（ptr フィールドへインライン）。
     /// 大型は self.bytes を指す（self が生存する間のみ有効）。
     unsafe fn to_value(&self) -> SynValue {
         if self.size <= PTR_SIZE {

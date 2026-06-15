@@ -60,7 +60,7 @@ raw（SDK ラッパー無し）で `synapse-host-mini` と `test-scalar-plugin` 
 - create → declare（output / input / input_default）→ negotiate（request）→ process
 - 非再帰 pull 評価（FFI 再帰なし。Rust 側再帰でも各プラグイン呼び出しは戻ってから次へ）
 - get_input: 上流出力値の配送 / 未接続ソケットへの既定値配送
-- alloc_output と SVO 読み出し（≤8byte インライン）
+- alloc / set_output（値渡し）と SVO 読み出し（≤ptr幅 インライン）
 - save_state / load_state 往復（サイズ問い合わせ → 書き込みの2段）
 - 空値表現（type_id==0）の経路（未接続・既定値なしソケット）※本グラフでは未発火
 - fan-in（multi-input）: SYN_PORT_MULTI ポートへの N リンク、link_count>1、同一ポートへの
