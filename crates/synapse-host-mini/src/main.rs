@@ -65,7 +65,7 @@ fn cstr(p: *const c_char) -> String {
 /*  値の保持・受け渡し                                                     */
 /* ======================================================================= */
 
-/// ホストが所有する値。バイト列は size>=実バイト数。≤8byte 値も buf に詰める。
+/// ホストが所有する値。バイト列は size>=実バイト数。SVO（≤ptr幅）値も buf に詰める。
 struct OwnedVal {
     type_id: u32,
     size: usize,
@@ -92,7 +92,7 @@ unsafe fn capture(v: &SynValue) -> OwnedVal {
     }
 }
 
-/// ホスト所有値を SynValue として値で組み立てる。≤8byte は SVO（ptr フィールドにインライン）。
+/// ホスト所有値を SynValue として値で組み立てる。≤ptr幅 は SVO（ptr フィールドにインライン）。
 /// 大型は v.buf を指す（ホスト所有・呼び出し中有効）。返り値は値で渡す。
 unsafe fn present(v: &OwnedVal) -> SynValue {
     if v.size <= core::mem::size_of::<*mut c_void>() {

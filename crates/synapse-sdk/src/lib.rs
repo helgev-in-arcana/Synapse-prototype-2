@@ -25,7 +25,7 @@ use synapse_abi::*;
 /*  PLAIN 型（SynValue ⇔ Rust 型）                                          */
 /* ======================================================================= */
 
-/// memcpy 可能な固定サイズ PLAIN 型。v1 では ≤8byte（SVO）のみ。
+/// memcpy 可能な固定サイズ PLAIN 型（≤ptr幅は SVO インライン、>ptr幅はホスト確保バッファ経由）。
 ///
 /// # Safety
 /// `SIZE == size_of::<Self>()` かつ任意のビットパターンが妥当（Copy・no padding 推奨）。

@@ -4,7 +4,9 @@
 //! (`cargo build` の build.rs か、`cbindgen --config cbindgen.toml -o synapse_abi.h .`)。
 //!
 //! 生成される C を「行儀のよい C」に保つための方針:
-//!   - 型は `#[repr(C)]`。ハンドルは中身のない enum にして C 側は不完全型 `Foo *`。
+//!   - 型は `#[repr(C)]`。ハンドルは Nomicon 推奨のゼロサイズ struct + PhantomData
+//!     （空 enum は uninhabited で参照を作ると即 UB のため不採用）にして、C 側は
+//!     不完全型 `typedef struct Foo Foo;`（`Foo *` として使用）。
 //!   - コールバックは `Option<unsafe extern "C" fn ...>`（= NULL 可能な C 関数ポインタ）。
 //!   - 定数は `pub const` とし、cbindgen 設定で `#define` に落とす（enum の基底型は
 //!     処理系定義なので ABI では #define が安全、という方針を Rust 側でも踏襲）。
@@ -128,7 +130,7 @@ opaque_handle!(
 pub struct SynValue {
     /// 実体型の URID。0 は空。
     pub type_id: SynTypeId,
-    /// size>8: 領域ポインタ / size<=8: 値そのもの(SVO) / opaque型: 不透明ハンドル。
+    /// size>ptr幅: 領域ポインタ / size<=ptr幅: 値そのもの(SVO) / opaque型: 不透明ハンドル。
     pub ptr: *mut c_void,
     /// 意味的なバイト数。
     pub size: usize,
@@ -257,8 +259,8 @@ pub struct SynRequest {
 /// negotiate/process から使う評価操作群。
 ///
 /// データ受け渡しの規約: `SynValue` は常に**値渡し**で境界を越える（構造体自体はコピー）。
-/// 参照は SynValue 内の `ptr` を通してのみ行い、大型データ(>8byte)の `ptr` が指す領域は
-/// ホスト所有・その呼び出し中のみ借用可能。SVO(≤8byte)は値が `ptr` フィールドに入った
+/// 参照は SynValue 内の `ptr` を通してのみ行い、大型データ(>ptr幅)の `ptr` が指す領域は
+/// ホスト所有・その呼び出し中のみ借用可能。SVO(≤ptr幅)は値が `ptr` フィールドに入った
 /// まま丸ごとコピーされるので、プラグインローカルがホストから見えない問題は起きない。
 #[repr(C)]
 pub struct SynEvalSuite {
@@ -273,7 +275,7 @@ pub struct SynEvalSuite {
     /// デフォルトの無い未接続ソケットは type_id==0（空）→plugin が処理する。
     pub get_input: Option<unsafe extern "C" fn(ctx: *mut SynEvalCtx, input_index: u32, link_index: u32) -> SynValue>,
 
-    /// process 中: 大型(>8byte)出力用にホスト所有バッファを確保して先頭ポインタを返す。
+    /// process 中: 大型(>ptr幅)出力用にホスト所有バッファを確保して先頭ポインタを返す。
     /// プラグインはここへ書き、その ptr を SynValue.ptr に入れて set_output に値渡しする。
     /// 確保はホスト（ADR-012）。SVO 型は確保不要（set_output だけで完結）。失敗時 NULL。
     pub alloc: Option<unsafe extern "C" fn(ctx: *mut SynEvalCtx, size: usize) -> *mut c_void>,

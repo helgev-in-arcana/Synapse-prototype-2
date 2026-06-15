@@ -48,7 +48,7 @@ header = """
  *    - canonical 型集合の確定、field 意味論(意図的に延期)、粗粒度ホットリロード。
  *
  *  ■ 用語
- *    URID=URI のセッション安定整数 / SVO=8byte以下を ptr に直接格納 /
+ *    URID=URI のセッション安定整数 / SVO=ptr幅(sizeof(void*))以下を ptr に直接格納 /
  *    型パッケージ=データ型登録 / 処理プラグイン=ノードロジック登録 /
  *    multi-input=1ポートで N リンク受理(fan-in) / canonical型=ホストが理解する標準型(Tier A) /
  *    方式a/b=汎用ノード出力型の ANY 解決 / 接続入力型の伝播 /

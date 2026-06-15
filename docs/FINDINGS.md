@@ -41,12 +41,12 @@ raw（SDK ラッパー無し）で `synapse-host-mini` と `test-scalar-plugin` 
 （ハンドシェイク=on_load で確定）の前提で正当な定石（CLAP 同様）であり、ABI は変えず
 このボイラープレートは SDK が隠蔽する。
 
-## F-4: alloc_output の `size==0`（vtable.size フォールバック）は未行使
+## F-4: `alloc` への size=0 vtable フォールバックは採用しない
 
-ABI コメントは「固定サイズ型は size=0 で vtable.size を使わせてよい」とあるが、
-本実装はプラグインが常に実サイズを渡すため未検証。フォールバックを実装するには
-ホストが eval 経路から型 vtable を引ける必要がある（lookup はグローバルなので可能）。
-最小実装では省略した。フォールバックを正式採用するなら別途テストが要る。
+旧 `alloc_output` 設計（ADR-022 改訂前）では「固定サイズ型は size=0 で vtable.size を
+使わせてよい」というオプションが想定されていた。ADR-022（SynValue 値渡し化）で
+`alloc_output` を廃止し `alloc(ctx, size) -> *mut c_void` に整理した際、このフォールバック
+は現行 ABI に含めない方針とした。プラグイン（および SDK の `set`）は常に実サイズを渡す。
 
 ## F-5: `create` の `node: *mut SynNode` の用途が test では空
 
@@ -60,7 +60,7 @@ ABI コメントは「固定サイズ型は size=0 で vtable.size を使わせ�
 - create → declare（output / input / input_default）→ negotiate（request）→ process
 - 非再帰 pull 評価（FFI 再帰なし。Rust 側再帰でも各プラグイン呼び出しは戻ってから次へ）
 - get_input: 上流出力値の配送 / 未接続ソケットへの既定値配送
-- alloc_output と SVO 読み出し（≤8byte インライン）
+- alloc / set_output（値渡し）と SVO 読み出し（≤ptr幅 インライン）
 - save_state / load_state 往復（サイズ問い合わせ → 書き込みの2段）
 - 空値表現（type_id==0）の経路（未接続・既定値なしソケット）※本グラフでは未発火
 - fan-in（multi-input）: SYN_PORT_MULTI ポートへの N リンク、link_count>1、同一ポートへの
@@ -76,7 +76,7 @@ ABI コメントは「固定サイズ型は size=0 で vtable.size を使わせ�
   直列化契約がコンパイル時に保証される。
 
 **クロス検証（ABI 漏れゼロの証明）**:
-- SDK プラグイン × host-abi: `cargo test -p synapse-host-abi`（5 ケース）
+- SDK プラグイン × host-abi: `cargo test -p synapse-host-abi`（6 ケース）
 - SDK プラグイン × raw mini ホスト: `cargo run -p synapse-host-mini -- test_scalar_sdk`
 - raw プラグイン × raw mini ホスト: `cargo run -p synapse-host-mini`
 いずれも同じアサーション（const→add / fan-in subfold / save-load）を通過。
@@ -87,5 +87,4 @@ ABI コメントは「固定サイズ型は size=0 で vtable.size を使わせ�
   上流チェーンの pull。host-abi に依存し、ABI を直接触らない。
 - 動的ノード（値依存の枝刈り negotiate override）、画像/GPU 型（OPAQUE + get_api）、
   multi-output（List<T>）。
-2. 2 ノード以上の上流チェーン / fan-in（multi-input, link_count>1）の検証。
-3. dirty 伝播（F-5）と passthrough（未知型素通し）の検証。
+- dirty 伝播（F-5）と passthrough（未知型素通し）の検証。
