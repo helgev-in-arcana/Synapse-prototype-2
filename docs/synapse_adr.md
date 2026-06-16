@@ -235,6 +235,10 @@
 - **Open-17: 接続必須ソケットの強制**: 現状は optional-everywhere（空を流しプラグインに一任, ADR-018）。ホスト側で「必須」を強制する required フラグを入れるかは先送り。
 - **Open-18: 生成ヘッダ（`synapse_abi.h`）の鮮度保証**: 正本は Rust（synapse-abi）で、`cargo build` の build.rs が cbindgen で `synapse_abi.h` を生成する（ヘッダはリポジトリにコミットして C 利用者へ配る成果物）。古いヘッダのコミットを防ぐため、CI で「再生成して `git diff --exit-code`」する運用に揃える（多くの Rust 製 C インターフェースの定石）。read-only / sandbox ビルドでソースディレクトリへ書き込めない問題はこの CI 運用で吸収する。CI 設定は未追加（リポジトリに CI が入った段で追加）。なお不透明ハンドル（SynNode 等）は Rust 側が PhantomData 構造体のため cbindgen が本体を出さず、前方 typedef を build.rs の after_includes で注入している（ADR-025 と関連）。
 
+- **Open-19: `OwnedValue` の SVO ゼロアロケーション化**:
+  `crates/synapse-host-abi/src/value.rs` の `OwnedValue` は、ABI 境界の SVO 最適化（ADR-006）をホスト内部の保管表現にまで引き継げていない。現状 `bytes: Vec<u8>` はサイズが ≤ポインタ幅の小型値（`bool`・`f32`・`i32` 等）であってもヒープ確保を行う。SVO の利点（「確保ゼロ・局所性・寿命 = SynValue 寿命」ADR-006）はプラグイン⇄ホスト間の**転送形式**（`SynValue`）にのみ効いており、`from_value()`/`to_value()` で変換した瞬間に失われる。また `#[derive(Clone)]` によるクローン毎にも同じアロケーションが発生する。
+  **解決の方向性**: `OwnedValue` を専用クレート（例: `synapse-value`）に分離し、保管表現を `Inline([u8; PTR_SIZE])` と `Heap(Vec<u8>)` を出し分ける enum あるいは `SmallVec<[u8; PTR_SIZE]>` 相当の小バッファ最適化型に置き換える。`size <= PTR_SIZE` の経路では確保ゼロ・スタック局所となり ADR-006 の意図と一致する。ただし安全で正しい実装には `unsafe`（ユニオン操作・`Copy` 実装の手書き等）が伴うため、プロトタイプ段階での実施は非本質タスクとして先送りとする。
+
 ---
 
 ## 付録: 参照した先行技術と対応
