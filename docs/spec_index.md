@@ -86,7 +86,6 @@
 - `Vec<{type_id, pointer}>` 2フィールド版 — `{type_id, ptr, size}` が正 (ADR-005)
 - `alloc` size=0 vtable フォールバック (FINDINGS F-4)
 - マルチホスト前提 — 1プロセス=1ホストに確定 (ADR-023)
-- 旧 ADR-011（negotiate 単発・poll 却下） — 任意数パスが本体と上下逆転のため破棄 (ADR-011 内に却下記録)
 
 ---
 
@@ -144,14 +143,3 @@
 ## 破棄
 
 - なし
-
----
-
-# 付録: negotiate 改名の反映状況（**反映済み**）
-
-セッションで `negotiate`（接続可否）/ `request`（poll 内データ要求）に語彙を確定し、本索引・ADR 本体・FINDINGS へ反映済み。
-
-- ADR-011 — request↔process ループへ再定義済み。旧「negotiate 単発・poll 却下」は却下記録として保持。
-- ADR-007 — 「型交渉」を negotiate（接続可否）へ明示紐付け済み。
-- ADR-002 — declare / negotiate / request / process の四層関係へ展開済み。
-- FINDINGS.md — シーケンスの `negotiate(request)` を request へ改名済み。

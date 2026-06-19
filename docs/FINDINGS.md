@@ -86,6 +86,6 @@ raw（SDK ラッパー無し）で `synapse-host-mini` と `test-scalar-plugin` 
 
 - 本体ホストクレート（FFI/unsafe 無し）: グラフ管理・非再帰評価器・dirty 伝播キャッシュ・
   上流チェーンの pull。host-abi に依存し、ABI を直接触らない。
-- 動的ノード（値依存の枝刈り negotiate override）、画像/GPU 型（OPAQUE + get_api）、
+- 動的ノード（request↔process ループでの値依存枝刈り）、画像/GPU 型（OPAQUE + get_api）、
   multi-output（List<T>）。
 - dirty 伝播（F-5）と passthrough（未知型素通し）の検証。
