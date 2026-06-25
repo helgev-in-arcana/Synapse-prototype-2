@@ -1,7 +1,8 @@
 # 最小ホスト/プラグイン実装で判明した ABI の痛点
 
 raw（SDK ラッパー無し）で `synapse-host-mini` と `test-scalar-plugin` を書き、
-`declare → negotiate → process` を一周させて得られた知見。SDK 層・ABI 改訂の
+`declare →（接続時 negotiate）→ request↔process` を一周させて得られた知見。SDK 層・ABI 改訂の
+（語彙は `synapse_adr.md` 確定語彙に従う: negotiate=接続可否 / request=poll 内データ要求）
 判断材料として記録する。実装はこれらを**現状 ABI のまま回避**できているが、
 プラグイン作者に押し付けると事故るので SDK が吸収すべき、というのが要点。
 
@@ -57,7 +58,7 @@ raw（SDK ラッパー無し）で `synapse-host-mini` と `test-scalar-plugin` 
 ## 検証済みの ABI 経路（回帰の土台）
 
 - register_type / register_node / fetch_suite の取り回し
-- create → declare（output / input / input_default）→ negotiate（request）→ process
+- create → declare（output / input / input_default）→（接続時 negotiate）→ request↔process
 - 非再帰 pull 評価（FFI 再帰なし。Rust 側再帰でも各プラグイン呼び出しは戻ってから次へ）
 - get_input: 上流出力値の配送 / 未接続ソケットへの既定値配送
 - alloc / set_output（値渡し）と SVO 読み出し（≤ptr幅 インライン）
@@ -69,7 +70,7 @@ raw（SDK ラッパー無し）で `synapse-host-mini` と `test-scalar-plugin` 
 ## ラッパー層（実装済み）
 
 - **synapse-sdk**: プラグイン側。`Node` トレイト + `synapse_module!` マクロで、F-3
-  （スイート fetch + モジュールグローバル保持）・SynValue⇔Rust 型変換・negotiate の縮退形・
+  （スイート fetch + モジュールグローバル保持）・SynValue⇔Rust 型変換・request↔process の縮退形（初回 process で即 Ready）・
   save/load の2段プロトコル・FFI 越えパニック遮断を隠蔽。作者コードに unsafe/グローバルなし。
 - **synapse-host-abi**: ホスト側。C-ABI 境界のみを安全な Rust に写す（個別モジュール/ノード単位）。
   グラフ・評価器・キャッシュは持たず本体ホストの責務。`&mut self` メソッドで ADR-019 の
@@ -85,6 +86,6 @@ raw（SDK ラッパー無し）で `synapse-host-mini` と `test-scalar-plugin` 
 
 - 本体ホストクレート（FFI/unsafe 無し）: グラフ管理・非再帰評価器・dirty 伝播キャッシュ・
   上流チェーンの pull。host-abi に依存し、ABI を直接触らない。
-- 動的ノード（値依存の枝刈り negotiate override）、画像/GPU 型（OPAQUE + get_api）、
+- 動的ノード（request↔process ループでの値依存枝刈り）、画像/GPU 型（OPAQUE + get_api）、
   multi-output（List<T>）。
 - dirty 伝播（F-5）と passthrough（未知型素通し）の検証。
