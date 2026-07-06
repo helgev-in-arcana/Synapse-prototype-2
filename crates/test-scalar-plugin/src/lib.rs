@@ -50,27 +50,20 @@ unsafe fn read_input_f32(v: &SynValue) -> Option<f32> {
     if v.type_id != g().float_id || v.size != 4 {
         return None;
     }
-    // float は 4byte ≤ sizeof(void*) なので常に SVO（値は ptr フィールドにインライン）。
+    // float は 4byte ≤ SYN_VALUE_INLINE なので常に SVO（値は payload にインライン）。
     let mut bytes = [0u8; 4];
-    core::ptr::copy_nonoverlapping(
-        (&v.ptr as *const *mut c_void) as *const u8,
-        bytes.as_mut_ptr(),
-        4,
-    );
+    bytes.copy_from_slice(&v.payload.data[..4]);
     Some(f32::from_ne_bytes(bytes))
 }
 
 /// float 値を SynValue として組み立てる(インライン SVO)。出力(set_output)・既定値の両方に使う。
 /// 値渡しなので、SVO 値はこの構造体ごとホストへコピーされる(F-1 が解消した形)。
 fn make_float_value(float_id: SynTypeId, f: f32) -> SynValue {
-    let mut bits: usize = 0;
-    let b = f.to_ne_bytes();
-    unsafe {
-        core::ptr::copy_nonoverlapping(b.as_ptr(), (&mut bits as *mut usize) as *mut u8, 4);
-    }
+    let mut data = [0u8; SYN_VALUE_INLINE];
+    data[..4].copy_from_slice(&f.to_ne_bytes());
     SynValue {
         type_id: float_id,
-        ptr: bits as *mut c_void,
+        payload: SynValuePayload { data },
         size: 4,
     }
 }

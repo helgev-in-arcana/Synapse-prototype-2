@@ -12,18 +12,17 @@
 //!
 //! ここに置く道具は本クレート内部専用（すべて `pub(crate)`）で、公開 API には現れない。
 
-use core::ffi::{c_char, c_void};
+use core::ffi::c_char;
 use std::ffi::CStr;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 use synapse_abi::{SynStatus, SYN_ERR_UNKNOWN};
 
-/// プラットフォームのポインタ幅（バイト）。
+/// SVO（Small Value Optimization, ADR-006/022）の判定境界（16byte、ABI 定数）。
 ///
-/// SVO（Small Value Optimization, ADR-022）の判定境界。値サイズがこの幅以下なら
-/// `SynValue::ptr` フィールドへ値そのものをインライン格納し、超える場合のみ別領域を指す。
-/// 32-bit でも 8 バイト型を正しく扱えるよう、定数として一元管理する。
-pub(crate) const PTR_SIZE: usize = core::mem::size_of::<*mut c_void>();
+/// 値サイズがこの幅以下なら `SynValue` の payload（`data`）へ値そのものをインライン格納し、
+/// 超える場合のみ別領域（`ptr`）を指す。ポインタ幅非依存なので 32-bit/64-bit で挙動が揃う。
+pub(crate) const INLINE_SIZE: usize = synapse_abi::SYN_VALUE_INLINE;
 
 /// `SynStatus` を返すコールバックのパニックガード。panic 時は `SYN_ERR_UNKNOWN` を返す。
 pub(crate) fn guard_status(f: impl FnOnce() -> SynStatus) -> SynStatus {

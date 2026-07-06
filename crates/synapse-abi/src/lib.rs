@@ -119,9 +119,27 @@ opaque_handle!(
 /*  データ単位（ワイヤフォーマット）                                        */
 /* ======================================================================== */
 
+/// SVO インライン幅（バイト）。`size <= SYN_VALUE_INLINE` の値は `SynValue` の payload に
+/// 直接格納する。ポインタ幅ではなく定数 16（color RGBA f32・vec2 f64・time rational 等の
+/// 最頻パラメータ型が収まる幅。32-bit/64-bit で挙動が揃う）。
+pub const SYN_VALUE_INLINE: usize = 16;
+
+/// `SynValue` の payload 領域（インライン格納と領域ポインタの重ね合わせ）。
+///
+/// どちらのフィールドが有効かは `SynValue::size` で決まる（`size <= SYN_VALUE_INLINE` なら
+/// `data`、超えるなら `ptr`）。`data` の読み書きは型 pun ではなく memcpy 経由で行うこと。
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union SynValuePayload {
+    /// size > SYN_VALUE_INLINE: ホスト所有領域へのポインタ / OPAQUE 型: 不透明ハンドル。
+    pub ptr: *mut c_void,
+    /// size <= SYN_VALUE_INLINE: 値そのもの（SVO インライン。memcpy で出し入れする）。
+    pub data: [u8; 16],
+}
+
 /// エッジを流れるデータ単位。
 ///
-/// `size <= sizeof(void*)` のとき payload は `ptr` フィールドに直接格納する
+/// `size <= SYN_VALUE_INLINE`（16byte）のとき payload は `data` に直接格納する
 /// (small-value optimization)。読み書きは型 pun ではなく memcpy 経由で行うこと。
 /// 不変条件: PLAIN 型の payload は位置独立な素のバイト列で、生ポインタを含まない。
 /// 空（未接続かつデフォルト無し）の表現は `type_id == 0`。`ptr == NULL` は使わない
@@ -130,8 +148,9 @@ opaque_handle!(
 pub struct SynValue {
     /// 実体型の URID。0 は空。
     pub type_id: SynTypeId,
-    /// size>ptr幅: 領域ポインタ / size<=ptr幅: 値そのもの(SVO) / opaque型: 不透明ハンドル。
-    pub ptr: *mut c_void,
+    /// size>16: 領域ポインタ（`ptr`） / size<=16: 値そのもの（`data`, SVO） /
+    /// opaque型: 不透明ハンドル（`ptr`）。
+    pub payload: SynValuePayload,
     /// 意味的なバイト数。
     pub size: usize,
 }
@@ -260,9 +279,9 @@ pub struct SynRequest {
 /// negotiate/process から使う評価操作群。
 ///
 /// データ受け渡しの規約: `SynValue` は常に**値渡し**で境界を越える（構造体自体はコピー）。
-/// 参照は SynValue 内の `ptr` を通してのみ行い、大型データ(>ptr幅)の `ptr` が指す領域は
-/// ホスト所有・その呼び出し中のみ借用可能。SVO(≤ptr幅)は値が `ptr` フィールドに入った
-/// まま丸ごとコピーされるので、プラグインローカルがホストから見えない問題は起きない。
+/// 参照は payload の `ptr` を通してのみ行い、大型データ(>SYN_VALUE_INLINE)の `ptr` が指す
+/// 領域はホスト所有・その呼び出し中のみ借用可能。SVO(≤SYN_VALUE_INLINE)は値が payload に
+/// 入ったまま丸ごとコピーされるので、プラグインローカルがホストから見えない問題は起きない。
 #[repr(C)]
 pub struct SynEvalSuite {
     /// negotiate 中: 必要入力を積む。
@@ -276,8 +295,8 @@ pub struct SynEvalSuite {
     /// デフォルトの無い未接続ソケットは type_id==0（空）→plugin が処理する。
     pub get_input: Option<unsafe extern "C" fn(ctx: *mut SynEvalCtx, input_index: u32, link_index: u32) -> SynValue>,
 
-    /// process 中: 大型(>ptr幅)出力用にホスト所有バッファを確保して先頭ポインタを返す。
-    /// プラグインはここへ書き、その ptr を SynValue.ptr に入れて set_output に値渡しする。
+    /// process 中: 大型(>SYN_VALUE_INLINE)出力用にホスト所有バッファを確保して先頭ポインタを
+    /// 返す。プラグインはここへ書き、その ptr を payload に入れて set_output に値渡しする。
     /// 確保はホスト（ADR-012）。`t` は値の実体型（ANY 宣言の汎用ノードは解決済み実体型を
     /// 渡す）。ホストは登録済み vtable の align 属性を満たすバッファを返す（ADR-029）。
     /// SVO 型は確保不要（set_output だけで完結）。失敗・未登録型は NULL。
@@ -398,7 +417,8 @@ pub struct SynModule {
 
 /// ABI バージョン（当面はこの 1 個で足りる）。
 /// v2: 2フェーズロード（ADR-027）＋ alloc の type_id 引数（ADR-029）。
-pub const SYN_ABI_VERSION: u32 = 2;
+/// v3: SVO インライン幅を 16byte へ拡張、payload を union 化（ADR-006/Open-20）。
+pub const SYN_ABI_VERSION: u32 = 3;
 
 /// モジュールエントリのシグネチャ: `const SynModule *synapse_module(void);`
 pub type SynModuleEntryFn = Option<unsafe extern "C" fn() -> *const SynModule>;

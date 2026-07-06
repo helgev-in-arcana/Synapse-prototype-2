@@ -156,7 +156,7 @@ extern "C" fn ev_get_input(ctx: *mut SynEvalCtx, input_index: u32, link_index: u
     fn empty() -> SynValue {
         SynValue {
             type_id: SYN_URID_INVALID,
-            ptr: null_mut(),
+            payload: synapse_abi::SynValuePayload { ptr: null_mut() },
             size: 0,
         }
     }

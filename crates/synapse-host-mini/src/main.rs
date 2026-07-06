@@ -65,7 +65,7 @@ fn cstr(p: *const c_char) -> String {
 /*  値の保持・受け渡し                                                     */
 /* ======================================================================= */
 
-/// ホストが所有する値。バイト列は size>=実バイト数。SVO（≤ptr幅）値も buf に詰める。
+/// ホストが所有する値。バイト列は size>=実バイト数。SVO（≤16byte）値も buf に詰める。
 struct OwnedVal {
     type_id: u32,
     size: usize,
@@ -75,15 +75,11 @@ struct OwnedVal {
 /// プラグインが渡した SynValue をホスト所有にコピーする。
 unsafe fn capture(v: &SynValue) -> OwnedVal {
     let sz = v.size;
-    let mut buf = vec![0u8; sz.max(8)];
-    if sz <= core::mem::size_of::<*mut c_void>() {
-        core::ptr::copy_nonoverlapping(
-            (&v.ptr as *const *mut c_void) as *const u8,
-            buf.as_mut_ptr(),
-            sz,
-        );
+    let mut buf = vec![0u8; sz.max(SYN_VALUE_INLINE)];
+    if sz <= SYN_VALUE_INLINE {
+        buf[..sz].copy_from_slice(&v.payload.data[..sz]);
     } else {
-        core::ptr::copy_nonoverlapping(v.ptr as *const u8, buf.as_mut_ptr(), sz);
+        core::ptr::copy_nonoverlapping(v.payload.ptr as *const u8, buf.as_mut_ptr(), sz);
     }
     OwnedVal {
         type_id: v.type_id,
@@ -92,21 +88,23 @@ unsafe fn capture(v: &SynValue) -> OwnedVal {
     }
 }
 
-/// ホスト所有値を SynValue として値で組み立てる。≤ptr幅 は SVO（ptr フィールドにインライン）。
+/// ホスト所有値を SynValue として値で組み立てる。≤16byte は SVO（payload にインライン）。
 /// 大型は v.buf を指す（ホスト所有・呼び出し中有効）。返り値は値で渡す。
 unsafe fn present(v: &OwnedVal) -> SynValue {
-    if v.size <= core::mem::size_of::<*mut c_void>() {
-        let mut bits: usize = 0;
-        core::ptr::copy_nonoverlapping(v.buf.as_ptr(), (&mut bits as *mut usize) as *mut u8, v.size);
+    if v.size <= SYN_VALUE_INLINE {
+        let mut data = [0u8; SYN_VALUE_INLINE];
+        data[..v.size].copy_from_slice(&v.buf[..v.size]);
         SynValue {
             type_id: v.type_id,
-            ptr: bits as *mut c_void,
+            payload: SynValuePayload { data },
             size: v.size,
         }
     } else {
         SynValue {
             type_id: v.type_id,
-            ptr: v.buf.as_ptr() as *mut c_void,
+            payload: SynValuePayload {
+                ptr: v.buf.as_ptr() as *mut c_void,
+            },
             size: v.size,
         }
     }
@@ -115,7 +113,7 @@ unsafe fn present(v: &OwnedVal) -> SynValue {
 fn empty_value() -> SynValue {
     SynValue {
         type_id: SYN_URID_INVALID,
-        ptr: null_mut(),
+        payload: SynValuePayload { ptr: null_mut() },
         size: 0,
     }
 }

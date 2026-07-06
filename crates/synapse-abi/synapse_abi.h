@@ -36,7 +36,7 @@
  *    - canonical 型集合の確定、field 意味論(意図的に延期)、粗粒度ホットリロード。
  *
  *  ■ 用語
- *    URID=URI のセッション安定整数 / SVO=ptr幅(sizeof(void*))以下を ptr に直接格納 /
+ *    URID=URI のセッション安定整数 / SVO=SYN_VALUE_INLINE(16byte)以下を payload に直接格納 /
  *    型パッケージ=データ型登録 / 処理プラグイン=ノードロジック登録 /
  *    multi-input=1ポートで N リンク受理(fan-in) / canonical型=ホストが理解する標準型(Tier A) /
  *    方式a/b=汎用ノード出力型の ANY 解決 / 接続入力型の伝播 /
@@ -89,6 +89,13 @@ typedef struct SynEvalCtx SynEvalCtx;
 #define SYN_LOG_DEBUG 3
 
 /*
+ SVO インライン幅（バイト）。`size <= SYN_VALUE_INLINE` の値は `SynValue` の payload に
+ 直接格納する。ポインタ幅ではなく定数 16（color RGBA f32・vec2 f64・time rational 等の
+ 最頻パラメータ型が収まる幅。32-bit/64-bit で挙動が揃う）。
+ */
+#define SYN_VALUE_INLINE 16
+
+/*
  memcpy/シリアライズ可能な素のバイト列。
  */
 #define SYN_TYPE_PLAIN_BYTES (1 << 0)
@@ -126,8 +133,9 @@ typedef struct SynEvalCtx SynEvalCtx;
 /*
  ABI バージョン（当面はこの 1 個で足りる）。
  v2: 2フェーズロード（ADR-027）＋ alloc の type_id 引数（ADR-029）。
+ v3: SVO インライン幅を 16byte へ拡張、payload を union 化（ADR-006/Open-20）。
  */
-#define SYN_ABI_VERSION 2
+#define SYN_ABI_VERSION 3
 
 /*
  ステータスコード（SYN_OK / SYN_ERR_*）。
@@ -274,9 +282,26 @@ typedef struct SynModule {
 typedef const struct SynModule *(*SynModuleEntryFn)(void);
 
 /*
+ `SynValue` の payload 領域（インライン格納と領域ポインタの重ね合わせ）。
+
+ どちらのフィールドが有効かは `SynValue::size` で決まる（`size <= SYN_VALUE_INLINE` なら
+ `data`、超えるなら `ptr`）。`data` の読み書きは型 pun ではなく memcpy 経由で行うこと。
+ */
+typedef union SynValuePayload {
+  /*
+   size > SYN_VALUE_INLINE: ホスト所有領域へのポインタ / OPAQUE 型: 不透明ハンドル。
+   */
+  void *ptr;
+  /*
+   size <= SYN_VALUE_INLINE: 値そのもの（SVO インライン。memcpy で出し入れする）。
+   */
+  uint8_t data[16];
+} SynValuePayload;
+
+/*
  エッジを流れるデータ単位。
 
- `size <= sizeof(void*)` のとき payload は `ptr` フィールドに直接格納する
+ `size <= SYN_VALUE_INLINE`（16byte）のとき payload は `data` に直接格納する
  (small-value optimization)。読み書きは型 pun ではなく memcpy 経由で行うこと。
  不変条件: PLAIN 型の payload は位置独立な素のバイト列で、生ポインタを含まない。
  空（未接続かつデフォルト無し）の表現は `type_id == 0`。`ptr == NULL` は使わない
@@ -288,9 +313,10 @@ typedef struct SynValue {
    */
   SynTypeId type_id;
   /*
-   size>ptr幅: 領域ポインタ / size<=ptr幅: 値そのもの(SVO) / opaque型: 不透明ハンドル。
+   size>16: 領域ポインタ（`ptr`） / size<=16: 値そのもの（`data`, SVO） /
+   opaque型: 不透明ハンドル（`ptr`）。
    */
-  void *ptr;
+  union SynValuePayload payload;
   /*
    意味的なバイト数。
    */
@@ -443,9 +469,9 @@ typedef struct SynRequest {
  negotiate/process から使う評価操作群。
 
  データ受け渡しの規約: `SynValue` は常に**値渡し**で境界を越える（構造体自体はコピー）。
- 参照は SynValue 内の `ptr` を通してのみ行い、大型データ(>ptr幅)の `ptr` が指す領域は
- ホスト所有・その呼び出し中のみ借用可能。SVO(≤ptr幅)は値が `ptr` フィールドに入った
- まま丸ごとコピーされるので、プラグインローカルがホストから見えない問題は起きない。
+ 参照は payload の `ptr` を通してのみ行い、大型データ(>SYN_VALUE_INLINE)の `ptr` が指す
+ 領域はホスト所有・その呼び出し中のみ借用可能。SVO(≤SYN_VALUE_INLINE)は値が payload に
+ 入ったまま丸ごとコピーされるので、プラグインローカルがホストから見えない問題は起きない。
  */
 typedef struct SynEvalSuite {
   /*
@@ -464,8 +490,8 @@ typedef struct SynEvalSuite {
    */
   struct SynValue (*get_input)(SynEvalCtx *ctx, uint32_t input_index, uint32_t link_index);
   /*
-   process 中: 大型(>ptr幅)出力用にホスト所有バッファを確保して先頭ポインタを返す。
-   プラグインはここへ書き、その ptr を SynValue.ptr に入れて set_output に値渡しする。
+   process 中: 大型(>SYN_VALUE_INLINE)出力用にホスト所有バッファを確保して先頭ポインタを
+   返す。プラグインはここへ書き、その ptr を payload に入れて set_output に値渡しする。
    確保はホスト（ADR-012）。`t` は値の実体型（ANY 宣言の汎用ノードは解決済み実体型を
    渡す）。ホストは登録済み vtable の align 属性を満たすバッファを返す（ADR-029）。
    SVO 型は確保不要（set_output だけで完結）。失敗・未登録型は NULL。

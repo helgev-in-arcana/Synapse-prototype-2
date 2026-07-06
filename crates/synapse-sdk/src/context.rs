@@ -18,7 +18,7 @@ use synapse_abi::{
 };
 
 use crate::error::{Error, Result};
-use crate::plain::{svo_value, value_to_plain, SynPlainType, PTR_SIZE};
+use crate::plain::{svo_value, value_to_plain, SynPlainType, INLINE_SIZE};
 use crate::port::{InPort, MultiInPort, OutPort};
 use crate::suites::{decl_suite, eval_suite, urid_of};
 
@@ -44,14 +44,16 @@ impl Declarer {
     pub fn input<T: SynPlainType>(&mut self, key: &CStr, label: &CStr, default: T) -> InPort<T> {
         let (idx, type_id) = self.declare_input::<T>(key, label, 0);
         unsafe {
-            // 既定値の値渡し: ≤ptr は SVO、>ptr は呼び出し中のみ有効な借用（ホストが clone する）。
+            // 既定値の値渡し: ≤16byte は SVO、超えるなら呼び出し中のみ有効な借用（ホストが clone する）。
             // `default` はこのメソッドのフレームに生存し input_default 呼び出し中ずっと有効。
-            let v = if T::SIZE <= PTR_SIZE {
+            let v = if T::SIZE <= INLINE_SIZE {
                 svo_value::<T>(type_id, &default)
             } else {
                 SynValue {
                     type_id,
-                    ptr: &default as *const T as *mut c_void,
+                    payload: synapse_abi::SynValuePayload {
+                        ptr: &default as *const T as *mut c_void,
+                    },
                     size: T::SIZE,
                 }
             };
@@ -178,10 +180,10 @@ impl ProcessCtx {
     pub fn set<T: SynPlainType>(&mut self, port: OutPort<T>, value: T) {
         unsafe {
             let e = eval_suite();
-            // ≤ptr は SVO（ptr フィールドにインライン）。>ptr は出力が下流に保持されるため、
-            // ホスト確保バッファ（ADR-012）に書いてその ptr を渡す。`T::SIZE <= PTR_SIZE` は
-            // const なので 64-bit の常用型では分岐ごと消える（ゼロコスト）。
-            let v = if T::SIZE <= PTR_SIZE {
+            // ≤16byte は SVO（payload にインライン）。超えるなら出力が下流に保持されるため、
+            // ホスト確保バッファ（ADR-012）に書いてその ptr を渡す。`T::SIZE <= INLINE_SIZE` は
+            // const なので常用型では分岐ごと消える（ゼロコスト）。
+            let v = if T::SIZE <= INLINE_SIZE {
                 svo_value::<T>(port.type_id, &value)
             } else {
                 let buf = (e.alloc.unwrap())(self.ctx, T::SIZE, port.type_id);
@@ -195,7 +197,7 @@ impl ProcessCtx {
                 );
                 SynValue {
                     type_id: port.type_id,
-                    ptr: buf,
+                    payload: synapse_abi::SynValuePayload { ptr: buf },
                     size: T::SIZE,
                 }
             };

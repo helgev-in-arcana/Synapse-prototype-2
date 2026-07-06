@@ -39,7 +39,7 @@
 - ★ FFI 跨ぎメモリはホスト確保／`alloc(ctx,size)` (ADR-012)
 - ★ FFI 再帰なし契約 (ADR-001) [契約IN／評価器→ホスト]
 - ★ 1プロセス=1ホスト=1セッション／スイート関数プロセスグローバル (ADR-023)
-- SVO 原理（幅以下の値を `ptr` にインライン格納） (ADR-006)
+- ★ SVO＝16byte 以下を payload（union `{ptr, data[16]}`）にインライン格納（ABI v3） (ADR-006)
 - multi-input＝1ポート N 受理 (ADR-008)
 - 冪等 declare＋安定 key で reconcile（方式として） (ADR-010)
 - 可変出力は `List<T>`＋抽出ノード（方式として。実装は延期） (ADR-009)
@@ -66,13 +66,11 @@
 - イテレーション具体形：request / process 分離＋非 Ready で再周回・返り値プロトコル (ADR-011)
 - エントリポイント具体＝`synapse_module` 固定シンボル（凍結せず） (ADR-003)
 - バージョニング＝`SYN_ABI_VERSION` 一個 (ADR-020)
-- SVO インライン幅＝8byte（`sizeof(void*)`）＋ SynValue レイアウト (ADR-006)
 - 汎用ノードの ANY 出力解決＝方式a (ADR-013) [`connected_type` は確定IN／伝播パス→ホスト]
 - アンロード時グローバル purge の v1 運用 (ADR-025) [契約IN／本体側運用→ホスト]
 
 ## 未定（仕様未定 × 実装なし）
 
-- SVO 16byte インライン化（Open-10 と同時に確定。世代付きハンドルは破棄方向・アリーナはホスト側で直交） (Open-20)
 - ROI／領域の ABI 表現 (Open-7) [表現IN／伝播→ホスト]
 - 必須ソケット強制 `required` フラグ (Open-17)
 - multi-input グループ型統一の強制 (Open-1)
@@ -86,6 +84,7 @@
 - `Vec<{type_id, pointer}>` 2フィールド版 — `{type_id, ptr, size}` が正 (ADR-005)
 - `alloc` size=0 vtable フォールバック (FINDINGS F-4)
 - マルチホスト前提 — 1プロセス=1ホストに確定 (ADR-023)
+- 世代付きハンドル — 却下理由: 照合先アリーナ不在では UAF 後の確率的検知にしかならず、借用寿命は四層分離＋process 再入契約が構造的に保証済み。必要なら OPAQUE 型が 16byte ハンドル内に型単位で後付け可 (Open-20)
 
 ---
 
