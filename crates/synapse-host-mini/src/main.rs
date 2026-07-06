@@ -215,11 +215,39 @@ static DECL_SUITE: SynDeclSuite = SynDeclSuite {
 /*  評価コンテキスト（negotiate / process のバックエンド）                 */
 /* ======================================================================= */
 
+/// alloc() が返す型アラインメント準拠バッファ（process 中のみ有効）。
+struct AlignedBuf {
+    ptr: *mut u8,
+    layout: std::alloc::Layout,
+}
+
+impl AlignedBuf {
+    fn new(size: usize, align: usize) -> Option<Self> {
+        let layout = std::alloc::Layout::from_size_align(size, align).ok()?;
+        if layout.size() == 0 {
+            return None;
+        }
+        // 安全性: layout.size() > 0 を確認済み。
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+        if ptr.is_null() {
+            return None;
+        }
+        Some(Self { ptr, layout })
+    }
+}
+
+impl Drop for AlignedBuf {
+    fn drop(&mut self) {
+        // 安全性: ptr は同じ layout で alloc_zeroed した非 NULL ポインタ。
+        unsafe { std::alloc::dealloc(self.ptr, self.layout) };
+    }
+}
+
 struct HostEvalCtx {
     graph: *mut Graph,
     node: usize,
     requests: Vec<(u32, u32)>, // (input_index, link_index)
-    scratch: Vec<Box<[u8]>>,   // alloc() が返す大型出力用バッファ（process 中のみ有効）
+    scratch: Vec<AlignedBuf>,  // alloc() が返す大型出力用バッファ（process 中のみ有効）
 }
 
 extern "C" fn ev_request(ctx: *mut SynEvalCtx, req: *const SynRequest) -> SynStatus {
@@ -262,12 +290,22 @@ extern "C" fn ev_get_input(
 }
 
 /// 大型出力用バッファをホストが確保（process 中のみ有効）。
-extern "C" fn ev_alloc(ctx: *mut SynEvalCtx, size: usize) -> *mut c_void {
+/// アラインメントは型の静的属性から引く（ADR-029）。未登録型は確保しない。
+extern "C" fn ev_alloc(ctx: *mut SynEvalCtx, size: usize, t: SynTypeId) -> *mut c_void {
+    let vt = reg_lookup(t);
+    if vt.is_null() {
+        return null_mut();
+    }
+    let align = unsafe { (*vt).align };
     let c = unsafe { &mut *(ctx as *mut HostEvalCtx) };
-    let mut b = vec![0u8; size].into_boxed_slice();
-    let p = b.as_mut_ptr();
-    c.scratch.push(b);
-    p as *mut c_void
+    match AlignedBuf::new(size, align) {
+        Some(b) => {
+            let p = b.ptr as *mut c_void;
+            c.scratch.push(b);
+            p
+        }
+        None => null_mut(),
+    }
 }
 
 /// プラグインが値渡しした出力値をホスト所有にコピーして out_cache に格納。
@@ -333,6 +371,11 @@ static URID_SUITE: SynUridSuite = SynUridSuite {
 };
 
 extern "C" fn reg_type(uri: *const c_char, vt: *const SynTypeVTable) -> SynStatus {
+    // align は 2 の冪であること（ADR-029。alloc がこの属性を信頼して確保する）。
+    let align = unsafe { (*vt).align };
+    if align == 0 || !align.is_power_of_two() {
+        return SYN_ERR_BAD_ARG;
+    }
     let id = urid_map(uri); // 先に完全に return するので Mutex 二重ロックにならない
     hs().lock().unwrap().vtables.insert(id, vt as usize);
     SYN_OK
@@ -518,7 +561,8 @@ fn main() {
         module.abi_version
     );
 
-    // --- on_load: 型・ノード登録 ---
+    // --- 2フェーズロード（ADR-027）: 型登録 → ノード登録 ---
+    // モジュールは1つだが、フェーズ順（全型登録の後にノード登録）は本番ローダと同じ。
     let mut host = SynHostStruct {
         host_ctx: null_mut(),
         fetch_suite: Some(h_fetch_suite),
@@ -526,8 +570,14 @@ fn main() {
         mark_dirty: Some(h_mark_dirty),
         log: Some(h_log),
     };
-    let st = unsafe { (module.on_load.unwrap())(&mut host as *mut SynHostStruct) };
-    assert_eq!(st, SYN_OK, "on_load 失敗");
+    if let Some(f) = module.on_register_types {
+        let st = unsafe { f(&mut host as *mut SynHostStruct) };
+        assert_eq!(st, SYN_OK, "on_register_types 失敗");
+    }
+    if let Some(f) = module.on_register_nodes {
+        let st = unsafe { f(&mut host as *mut SynHostStruct) };
+        assert_eq!(st, SYN_OK, "on_register_nodes 失敗");
+    }
 
     // --- 登録済みノード記述子を引く ---
     let nodes = hs().lock().unwrap().nodes.clone();

@@ -13,15 +13,48 @@
 //! 評価結果をリンク順に詰め、[`crate::node::NodeInstance::process`] へ渡す。
 
 use core::ffi::c_void;
+use std::alloc::Layout;
 use std::ptr::null_mut;
 
 use synapse_abi::{
-    SynEvalCtx, SynEvalSuite, SynRequest, SynStatus, SynValue, SYN_ERR_BAD_ARG, SYN_OK,
+    SynEvalCtx, SynEvalSuite, SynRequest, SynStatus, SynTypeId, SynValue, SYN_ERR_BAD_ARG, SYN_OK,
     SYN_URID_INVALID,
 };
 
 use crate::ffi::{guard_or, guard_status};
+use crate::session::Session;
 use crate::value::OwnedValue;
+
+/// `alloc` が返す型アラインメント準拠のホスト所有バッファ（process 終了まで生存）。
+///
+/// 型 vtable の `align` 属性（register_type で 2 の冪を検証済み, ADR-029）で確保する。
+pub(crate) struct AlignedBuf {
+    ptr: *mut u8,
+    layout: Layout,
+}
+
+impl AlignedBuf {
+    /// 確保して零初期化する。size==0・レイアウト不正・確保失敗は `None`。
+    fn new(size: usize, align: usize) -> Option<Self> {
+        let layout = Layout::from_size_align(size, align).ok()?;
+        if layout.size() == 0 {
+            return None;
+        }
+        // 安全性: layout.size() > 0 を確認済み。
+        let ptr = unsafe { std::alloc::alloc_zeroed(layout) };
+        if ptr.is_null() {
+            return None;
+        }
+        Some(Self { ptr, layout })
+    }
+}
+
+impl Drop for AlignedBuf {
+    fn drop(&mut self) {
+        // 安全性: ptr は同じ layout で alloc_zeroed した非 NULL ポインタ。
+        unsafe { std::alloc::dealloc(self.ptr, self.layout) };
+    }
+}
 
 /// `negotiate` が返す入力要求。`frame` は v1（単一フレーム）では無視する。
 #[derive(Debug, Clone, Copy)]
@@ -90,7 +123,7 @@ pub(crate) struct EvalScope {
     pub(crate) requests: Vec<Request>,
     pub(crate) inputs: *const InputBindings, // process 中のみ非 NULL
     pub(crate) outputs: Vec<Option<OwnedValue>>,
-    pub(crate) scratch: Vec<Box<[u8]>>,
+    pub(crate) scratch: Vec<AlignedBuf>,
 }
 
 extern "C" fn ev_request(ctx: *mut SynEvalCtx, req: *const SynRequest) -> SynStatus {
@@ -147,16 +180,25 @@ extern "C" fn ev_get_input(ctx: *mut SynEvalCtx, input_index: u32, link_index: u
     })
 }
 
-extern "C" fn ev_alloc(ctx: *mut SynEvalCtx, size: usize) -> *mut c_void {
+extern "C" fn ev_alloc(ctx: *mut SynEvalCtx, size: usize, t: SynTypeId) -> *mut c_void {
     guard_or(null_mut(), || {
         if ctx.is_null() {
             return null_mut();
         }
+        // アラインメントは型の静的属性から引く（ADR-029）。未登録型は確保しない。
+        let align = match Session::type_vtable(t) {
+            Some(vt) => unsafe { (*vt).align },
+            None => return null_mut(),
+        };
         let s = unsafe { &mut *(ctx as *mut EvalScope) };
-        let mut b = vec![0u8; size].into_boxed_slice();
-        let p = b.as_mut_ptr();
-        s.scratch.push(b);
-        p as *mut c_void
+        match AlignedBuf::new(size, align) {
+            Some(b) => {
+                let p = b.ptr as *mut c_void;
+                s.scratch.push(b);
+                p
+            }
+            None => null_mut(),
+        }
     })
 }
 

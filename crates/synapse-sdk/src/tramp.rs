@@ -7,7 +7,7 @@
 //! `dlclose` で正しく解放されるようにする（ヒープ Box::leak だと残留する）。
 //!
 //! # 公開ヘルパ
-//! `__on_load_begin` / `__register_type` / `__register_node` / `__on_unload` / [`SyncModule`] は
+//! `__on_register_types_begin` / `__register_type` / `__register_node` / `__on_unload` / [`SyncModule`] は
 //! [`synapse_module!`](crate::synapse_module) マクロが `$crate::...` で参照する内部 API。
 //! `#[doc(hidden)]` だが、マクロ展開先から見えるよう `pub`。直接呼ぶことは想定しない。
 
@@ -226,10 +226,10 @@ impl<N: Node> NodeDescStatic for N {}
 /*  マクロが呼ぶ公開ヘルパ（マクロ本体を小さく保つ）                        */
 /* ----------------------------------------------------------------------- */
 
-/// `on_load` 冒頭でスイートを fetch してモジュールグローバルへ格納する。
+/// `on_register_types` 冒頭でスイートを fetch してモジュールグローバルへ格納する。
 #[doc(hidden)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // host は生成された on_load から妥当な値で渡る
-pub fn __on_load_begin(h: SynHost) {
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // host は生成された登録フェーズ関数から妥当な値で渡る
+pub fn __on_register_types_begin(h: SynHost) {
     unsafe {
         let host = &*h;
         let f = host.fetch_suite.expect("fetch_suite");
@@ -256,9 +256,9 @@ pub fn __register_type<T: SynPlainType>(_h: SynHost) {
     }
 }
 
-/// ノード `N` の記述子をホストへ登録する。
+/// ノード `N` の記述子をホストへ登録する（`on_register_nodes` から呼ぶ）。
 #[doc(hidden)]
-#[allow(clippy::not_unsafe_ptr_arg_deref)] // host は生成された on_load から妥当な値で渡る
+#[allow(clippy::not_unsafe_ptr_arg_deref)] // host は生成された登録フェーズ関数から妥当な値で渡る
 pub fn __register_node<N: Node>(h: SynHost) {
     unsafe {
         let host = &*h;

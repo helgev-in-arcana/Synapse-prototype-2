@@ -36,9 +36,12 @@ pub(crate) struct SessionInner {
     id_to_uri: HashMap<u32, CString>,
     next_id: u32,
     pub(crate) next_module_id: ModuleId,
-    /// 現在 on_load 実行中のモジュール ID（reg_type / register_node が出所を付与するのに使う）。
-    /// ロードは [`crate::module::LoadedModule::load`] が LOAD_LOCK で直列化するので競合しない。
+    /// 現在登録フェーズ実行中のモジュール ID（reg_type / register_node が出所を付与するのに使う）。
+    /// ロードは [`crate::module::LoadedModule::load_many`] が LOAD_LOCK で直列化するので競合しない。
     pub(crate) current_loading: Option<ModuleId>,
+    /// 型登録フェーズ（`on_register_types`）実行中フラグ。この間、他モジュールの型 lookup は
+    /// 拒否する（型-型依存の禁止＝ADR-028 の違反検知）。
+    pub(crate) in_type_phase: bool,
     /// 型 ID → (登録元モジュール, vtable ポインタ)。ポインタはモジュールイメージ内 static。
     pub(crate) vtables: HashMap<u32, (ModuleId, SendPtr<SynTypeVTable>)>,
     /// (登録元モジュール, node desc ポインタ)。desc はモジュールイメージ内 static。
@@ -55,6 +58,7 @@ fn session_inner() -> &'static Mutex<SessionInner> {
             next_id: 2,        // 0=invalid, 1=ANY
             next_module_id: 1, // 0 は「ロード文脈外の登録」用に予約（purge 対象外）
             current_loading: None,
+            in_type_phase: false,
             vtables: HashMap::new(),
             nodes: Vec::new(),
         })
@@ -141,6 +145,11 @@ extern "C" fn reg_type(uri: *const c_char, vt: *const SynTypeVTable) -> SynStatu
         if uri.is_null() || vt.is_null() {
             return SYN_ERR_BAD_ARG;
         }
+        // align は 2 の冪であること（ADR-029。alloc がこの属性を信頼して確保する）。
+        let align = unsafe { (*vt).align };
+        if align == 0 || !align.is_power_of_two() {
+            return SYN_ERR_BAD_ARG;
+        }
         let id = urid_map(uri); // 先に完全 return するので Mutex 二重ロックにならない
         let mut st = lock_session();
         let mid = st.current_loading.unwrap_or(0);
@@ -151,10 +160,16 @@ extern "C" fn reg_type(uri: *const c_char, vt: *const SynTypeVTable) -> SynStatu
 
 extern "C" fn reg_lookup(t: SynTypeId) -> *const SynTypeVTable {
     guard_or(core::ptr::null(), || {
-        lock_session()
-            .vtables
-            .get(&t)
-            .map_or(core::ptr::null(), |&(_, p)| p.0)
+        let st = lock_session();
+        match st.vtables.get(&t) {
+            // 型登録フェーズ中の他モジュール型 lookup は型-型依存（ADR-028 ★）＝拒否。
+            // 自モジュールが直前に登録した型は許す。
+            Some(&(mid, _)) if st.in_type_phase && st.current_loading != Some(mid) => {
+                core::ptr::null()
+            }
+            Some(&(_, p)) => p.0,
+            None => core::ptr::null(),
+        }
     })
 }
 

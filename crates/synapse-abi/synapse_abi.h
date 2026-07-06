@@ -125,8 +125,9 @@ typedef struct SynEvalCtx SynEvalCtx;
 
 /*
  ABI バージョン（当面はこの 1 個で足りる）。
+ v2: 2フェーズロード（ADR-027）＋ alloc の type_id 引数（ADR-029）。
  */
-#define SYN_ABI_VERSION 1
+#define SYN_ABI_VERSION 2
 
 /*
  ステータスコード（SYN_OK / SYN_ERR_*）。
@@ -232,6 +233,11 @@ typedef struct SynHostStruct *SynHost;
 
 /*
  モジュール記述子。各 .so/.dll は `synapse_module` を 1 つだけエクスポートする。
+
+ ロードは 2 フェーズ（ADR-027）: ホストは**全モジュール**の `on_register_types` を先に呼び、
+ その後**全モジュール**の `on_register_nodes` を呼ぶ。これにより「ノード登録時には参照しうる
+ 型がすべて出揃っている」を保証する。型登録フェーズ内で他モジュールの型に依存してはならない
+ （型-型依存の禁止、ADR-028 ★）。
  */
 typedef struct SynModule {
   /*
@@ -247,9 +253,15 @@ typedef struct SynModule {
    */
   const char *module_version;
   /*
-   型/ノードをここで登録する。
+   フェーズ1: 型をここで登録する（スイート fetch もここで行う）。型が無ければ NULL 可。
+   他モジュールの型を lookup してはならない（ADR-028。ホストは違反を拒否してよい）。
    */
-  SynStatus (*on_load)(SynHost h);
+  SynStatus (*on_register_types)(SynHost h);
+  /*
+   フェーズ2: ノードをここで登録する。全モジュールの型登録後に呼ばれる。
+   ノードが無ければ NULL 可。
+   */
+  SynStatus (*on_register_nodes)(SynHost h);
   /*
    アンロード前に 1 回。
    */
@@ -298,7 +310,8 @@ typedef struct SynTypeVTable {
    */
   size_t size;
   /*
-   アラインメント要件。
+   アラインメント要件（2の冪。register_type が検証する）。可変サイズ型では
+   ホスト確保バッファ先頭のアラインメントとして解釈する（ADR-029）。
    */
   size_t align;
   /*
@@ -334,7 +347,7 @@ typedef struct SynTypeVTable {
  */
 typedef struct SynTypeRegistrySuite {
   /*
-   型を URI と vtable で登録する。
+   型を URI と vtable で登録する。vt->align が 2 の冪でなければ SYN_ERR_BAD_ARG（ADR-029）。
    */
   SynStatus (*register_type)(const char *uri, const struct SynTypeVTable *vt);
   /*
@@ -453,9 +466,11 @@ typedef struct SynEvalSuite {
   /*
    process 中: 大型(>ptr幅)出力用にホスト所有バッファを確保して先頭ポインタを返す。
    プラグインはここへ書き、その ptr を SynValue.ptr に入れて set_output に値渡しする。
-   確保はホスト（ADR-012）。SVO 型は確保不要（set_output だけで完結）。失敗時 NULL。
+   確保はホスト（ADR-012）。`t` は値の実体型（ANY 宣言の汎用ノードは解決済み実体型を
+   渡す）。ホストは登録済み vtable の align 属性を満たすバッファを返す（ADR-029）。
+   SVO 型は確保不要（set_output だけで完結）。失敗・未登録型は NULL。
    */
-  void *(*alloc)(SynEvalCtx *ctx, size_t size);
+  void *(*alloc)(SynEvalCtx *ctx, size_t size, SynTypeId t);
   /*
    process 中: 生産した出力値を**値渡し**でホストへ引き渡す。SVO はこれだけで完結。
    value.type_id は宣言した出力型に一致（ANY 宣言の汎用ノードは解決済み実体型を入れる）。

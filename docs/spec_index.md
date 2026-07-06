@@ -51,19 +51,19 @@
 - caps 宣言（`SYN_CAP_*`）と直列化契約 (ADR-019/021) [宣言IN／スケジューラ→ホスト]
 - unwind は abort・エラーは戻り値（`extern "C-unwind"` 不採用） (ADR-024)
 - 評価境界の値受け渡しと寿命（出力=ホスト確保／入力=借用、32-bit でも const 分岐） (ADR-026)
-- `byte_alignment` は型属性（`SynTypeDesc`・登録時 2 冪検証） (ADR-029) ＊実装要確認
+- アラインメントは型属性（`SynTypeVTable.align`・登録時 2 冪検証）＋ `alloc(ctx,size,t)` で型を受領 (ADR-029)
+- ★ 型-型依存の禁止（型登録フェーズ中の他モジュール型 lookup 拒否まで実装） (ADR-028)
+- 2フェーズロード：`on_register_types` / `on_register_nodes`＋`load_many`（ABI v2） (ADR-027)
+- declare の key＝文字列 (ADR-010, Open-11 解決)
 
 ## 延期（仕様確定 × 実装なし）
 
-- ★ 型-型依存の禁止（2フェーズロードの load-bearing 前提） (ADR-028)
-- 2フェーズロード：`on_register_types` / `on_register_nodes` (ADR-027)
 - `List<T>`＋抽出ノードによる可変出力の実装 (ADR-009)（canonical 型集合＝Open-10 依存）
 
 ## 暫定（仕様未定 × 実装済）
 
 - データ受け渡し API：`get_input→SynValue` / `set_output(value)` 値渡し (ADR-022) [IF・ラッパー・SDK 跨り]
 - イテレーション具体形：request / process 分離＋非 Ready で再周回・返り値プロトコル (ADR-011)
-- declare の key 表現＝文字列 (Open-11)
 - エントリポイント具体＝`synapse_module` 固定シンボル（凍結せず） (ADR-003)
 - バージョニング＝`SYN_ABI_VERSION` 一個 (ADR-020)
 - SVO インライン幅＝8byte（`sizeof(void*)`）＋ SynValue レイアウト (ADR-006)
@@ -72,7 +72,7 @@
 
 ## 未定（仕様未定 × 実装なし）
 
-- SVO 16byte インライン化 ＋ 世代付きハンドル（セットで未決） (Open-20)
+- SVO 16byte インライン化（Open-10 と同時に確定。世代付きハンドルは破棄方向・アリーナはホスト側で直交） (Open-20)
 - ROI／領域の ABI 表現 (Open-7) [表現IN／伝播→ホスト]
 - 必須ソケット強制 `required` フラグ (Open-17)
 - multi-input グループ型統一の強制 (Open-1)

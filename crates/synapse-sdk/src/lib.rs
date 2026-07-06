@@ -44,7 +44,7 @@ pub use port::{InPort, MultiInPort, OutPort};
 
 // マクロ展開が `$crate::...` で参照する内部ヘルパ（`#[doc(hidden)]`）。直接利用は想定しない。
 #[doc(hidden)]
-pub use tramp::{__on_load_begin, __on_unload, __register_node, __register_type, SyncModule};
+pub use tramp::{__on_register_types_begin, __on_unload, __register_node, __register_type, SyncModule};
 
 /// よく使う型・トレイト・マクロをまとめて取り込むための prelude。
 pub mod prelude {

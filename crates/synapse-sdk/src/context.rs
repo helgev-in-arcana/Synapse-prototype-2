@@ -184,7 +184,7 @@ impl ProcessCtx {
             let v = if T::SIZE <= PTR_SIZE {
                 svo_value::<T>(port.type_id, &value)
             } else {
-                let buf = (e.alloc.unwrap())(self.ctx, T::SIZE);
+                let buf = (e.alloc.unwrap())(self.ctx, T::SIZE, port.type_id);
                 if buf.is_null() {
                     return; // 確保失敗: 出力を書かない（堅牢性: パニックしない）。
                 }

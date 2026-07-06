@@ -346,7 +346,9 @@ fn make_subfold_desc() -> SynNodeDesc {
     }
 }
 
-extern "C" fn on_load(h: SynHost) -> SynStatus {
+/// フェーズ1（2フェーズロード, ADR-027）: スイート fetch と型登録。
+/// 自己完結の float 型のみ登録する（他モジュールの型に依存しない＝ADR-028）。
+extern "C" fn on_register_types(h: SynHost) -> SynStatus {
     unsafe {
         let host = &*h;
         let fetch = host.fetch_suite.expect("fetch_suite");
@@ -358,7 +360,10 @@ extern "C" fn on_load(h: SynHost) -> SynStatus {
             return SYN_ERR_UNSUPPORTED;
         }
         let float_id = ((*urid).map.unwrap())(c"synapse:float".as_ptr());
-        ((*treg).register_type.unwrap())(c"synapse:float".as_ptr(), &FLOAT_VTABLE);
+        let st = ((*treg).register_type.unwrap())(c"synapse:float".as_ptr(), &FLOAT_VTABLE);
+        if st != SYN_OK {
+            return st;
+        }
 
         G.set(Globals {
             decl: decl as usize,
@@ -366,7 +371,14 @@ extern "C" fn on_load(h: SynHost) -> SynStatus {
             float_id,
         })
         .ok();
+    }
+    SYN_OK
+}
 
+/// フェーズ2: ノード登録（全モジュールの型登録後にホストが呼ぶ）。
+extern "C" fn on_register_nodes(h: SynHost) -> SynStatus {
+    unsafe {
+        let host = &*h;
         let cdesc = Box::leak(Box::new(make_const_desc()));
         let adesc = Box::leak(Box::new(make_add_desc()));
         let sdesc = Box::leak(Box::new(make_subfold_desc()));
@@ -391,7 +403,8 @@ pub extern "C" fn synapse_module() -> *const SynModule {
             abi_version: SYN_ABI_VERSION,
             module_uri: c"synapse.test".as_ptr(),
             module_version: c"0.1.0".as_ptr(),
-            on_load: Some(on_load),
+            on_register_types: Some(on_register_types),
+            on_register_nodes: Some(on_register_nodes),
             on_unload: Some(on_unload),
         }));
         m as *const SynModule as usize

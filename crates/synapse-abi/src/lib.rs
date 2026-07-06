@@ -154,7 +154,8 @@ pub struct SynTypeVTable {
     pub flags: u32,
     /// 固定サイズ。可変なら 0。
     pub size: usize,
-    /// アラインメント要件。
+    /// アラインメント要件（2の冪。register_type が検証する）。可変サイズ型では
+    /// ホスト確保バッファ先頭のアラインメントとして解釈する（ADR-029）。
     pub align: usize,
 
     /// 既定値を dst に構築する。
@@ -180,7 +181,7 @@ pub struct SynTypeVTable {
 /// 型の登録・解決。
 #[repr(C)]
 pub struct SynTypeRegistrySuite {
-    /// 型を URI と vtable で登録する。
+    /// 型を URI と vtable で登録する。vt->align が 2 の冪でなければ SYN_ERR_BAD_ARG（ADR-029）。
     pub register_type: Option<unsafe extern "C" fn(uri: *const c_char, vt: *const SynTypeVTable) -> SynStatus>,
     /// 型 ID から vtable を解決する（結果はセッション中キャッシュ可）。
     pub lookup: Option<unsafe extern "C" fn(t: SynTypeId) -> *const SynTypeVTable>,
@@ -277,8 +278,10 @@ pub struct SynEvalSuite {
 
     /// process 中: 大型(>ptr幅)出力用にホスト所有バッファを確保して先頭ポインタを返す。
     /// プラグインはここへ書き、その ptr を SynValue.ptr に入れて set_output に値渡しする。
-    /// 確保はホスト（ADR-012）。SVO 型は確保不要（set_output だけで完結）。失敗時 NULL。
-    pub alloc: Option<unsafe extern "C" fn(ctx: *mut SynEvalCtx, size: usize) -> *mut c_void>,
+    /// 確保はホスト（ADR-012）。`t` は値の実体型（ANY 宣言の汎用ノードは解決済み実体型を
+    /// 渡す）。ホストは登録済み vtable の align 属性を満たすバッファを返す（ADR-029）。
+    /// SVO 型は確保不要（set_output だけで完結）。失敗・未登録型は NULL。
+    pub alloc: Option<unsafe extern "C" fn(ctx: *mut SynEvalCtx, size: usize, t: SynTypeId) -> *mut c_void>,
 
     /// process 中: 生産した出力値を**値渡し**でホストへ引き渡す。SVO はこれだけで完結。
     /// value.type_id は宣言した出力型に一致（ANY 宣言の汎用ノードは解決済み実体型を入れる）。
@@ -370,6 +373,11 @@ pub struct SynHostStruct {
 pub type SynHost = *mut SynHostStruct;
 
 /// モジュール記述子。各 .so/.dll は `synapse_module` を 1 つだけエクスポートする。
+///
+/// ロードは 2 フェーズ（ADR-027）: ホストは**全モジュール**の `on_register_types` を先に呼び、
+/// その後**全モジュール**の `on_register_nodes` を呼ぶ。これにより「ノード登録時には参照しうる
+/// 型がすべて出揃っている」を保証する。型登録フェーズ内で他モジュールの型に依存してはならない
+/// （型-型依存の禁止、ADR-028 ★）。
 #[repr(C)]
 pub struct SynModule {
     /// ビルド時の SYN_ABI_VERSION。
@@ -378,14 +386,19 @@ pub struct SynModule {
     pub module_uri: *const c_char,
     /// semver 文字列。
     pub module_version: *const c_char,
-    /// 型/ノードをここで登録する。
-    pub on_load: Option<unsafe extern "C" fn(h: SynHost) -> SynStatus>,
+    /// フェーズ1: 型をここで登録する（スイート fetch もここで行う）。型が無ければ NULL 可。
+    /// 他モジュールの型を lookup してはならない（ADR-028。ホストは違反を拒否してよい）。
+    pub on_register_types: Option<unsafe extern "C" fn(h: SynHost) -> SynStatus>,
+    /// フェーズ2: ノードをここで登録する。全モジュールの型登録後に呼ばれる。
+    /// ノードが無ければ NULL 可。
+    pub on_register_nodes: Option<unsafe extern "C" fn(h: SynHost) -> SynStatus>,
     /// アンロード前に 1 回。
     pub on_unload: Option<unsafe extern "C" fn(h: SynHost)>,
 }
 
 /// ABI バージョン（当面はこの 1 個で足りる）。
-pub const SYN_ABI_VERSION: u32 = 1;
+/// v2: 2フェーズロード（ADR-027）＋ alloc の type_id 引数（ADR-029）。
+pub const SYN_ABI_VERSION: u32 = 2;
 
 /// モジュールエントリのシグネチャ: `const SynModule *synapse_module(void);`
 pub type SynModuleEntryFn = Option<unsafe extern "C" fn() -> *const SynModule>;
