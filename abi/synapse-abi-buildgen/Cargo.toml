@@ -1,0 +1,14 @@
+[package]
+name = "synapse-abi-buildgen"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "ABI 層クレートの build.rs から使う C ヘッダ生成ヘルパ（配布物ではない）"
+
+[lib]
+name = "synapse_abi_buildgen"
+
+[dependencies]
+cbindgen = "0.29"
+# 自クレートの src を走査して cbindgen の export リストと文字列定数を導出するため。
+syn = { version = "2", features = ["full", "parsing"] }

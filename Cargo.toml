@@ -1,6 +1,10 @@
 [workspace]
 members = [
-    "crates/synapse-abi",
+    "abi/synapse-abi",
+    "abi/synapse-abi-buildgen",
+    "abi/synapse-abi-core",
+    "abi/synapse-abi-suite",
+    "abi/synapse-abi-ext",
     "crates/synapse-host-mini",
     "crates/test-scalar-plugin",
     "crates/synapse-host-abi",

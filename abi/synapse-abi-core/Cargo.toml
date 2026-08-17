@@ -1,0 +1,12 @@
+[package]
+name = "synapse-abi-core"
+version = "0.5.0"
+edition = "2021"
+description = "Synapse plugin C ABI — 基底 ABI 層（版一致必須の凍結面）"
+
+[lib]
+name = "synapse_abi_core"
+crate-type = ["rlib"]
+
+[build-dependencies]
+synapse-abi-buildgen = { path = "../synapse-abi-buildgen" }

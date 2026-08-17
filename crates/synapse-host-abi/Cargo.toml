@@ -8,5 +8,5 @@ description = "ホスト側 C-ABI 境界層。個別モジュール/ノードの
 name = "synapse_host_abi"
 
 [dependencies]
-synapse-abi = { path = "../synapse-abi" }
+synapse-abi = { path = "../../abi/synapse-abi" }
 libloading = "0.8"

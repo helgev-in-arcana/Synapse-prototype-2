@@ -1,6 +1,7 @@
 # Synapse プラグイン ABI — Architecture Decision Record (ADR)
 
-`synapse_abi.h` の背後にある設計判断・今後のロードマップ・未解決の論点を記録する。
+C ABI ヘッダ（`synapse_abi.h` とその層ヘッダ `synapse_abi_{core,suite,ext}.h`）の背後にある
+設計判断・今後のロードマップ・未解決の論点を記録する。
 ヘッダは「何がそうなっているか」を、本 ADR は「なぜそう決めたか／何を却下したか／何が未決か」を保持する。
 
 - 対象: ノードベース映像合成/編集フレームワーク "Synapse" のプラグイン側（**プラグインインターフェース＝C ABI / ホストラッパー / プラグイン SDK** の3レイヤ）。
@@ -251,6 +252,13 @@
 **却下案**: `alloc(ctx, size, align)` でアラインメント値を毎回渡す（責務分散・取り違えのリスク）。常に最大アラインメント固定（16byte 保証では AVX/キャッシュライン/GPU staging の要求に将来届かない＝truly insufficient）。
 **帰結**: アラインメントは型に1回宣言すれば全確保経路で一貫する。副次的に (1) 固定サイズ型の size 不一致を alloc 時点で検証できる、(2) 型別アリーナ・サイズクラス分けを ABI 変更ゼロで後付けできる（確保時に型が既知になるため）、(3) `set_output` 時の型照合を debug で足せる。
 
+### ADR-030: ABI の層を「1層 = 1クレート = 1ヘッダ」で表現する（`abi/` 配下）
+**状態**: Accepted ／ **分類**: 確定（構成。ABI の意味論は不変） ／ レイヤ: IF（リポジトリ構成・生成機構）
+**文脈**: ABI は既に互換性の粒度で 3 層に分かれていた——基底（版一致必須の凍結面）／スイート（`fetch_suite(id)` 引きで**追加は非破壊**）／拡張（`get_extension(ext_id)` 引きで**追加は非破壊**）。しかし正本は単一クレートの `src/lib.rs` 1 枚で、層の区別はコメント上にしか無かった。「この変更はどれくらい重いか」がファイル構造から読めず、`core` が上位層を参照しない不変条件もレビュー任せだった。中間形としてモジュール分割（`src/core/` 等）を経たが、**Rust ではディレクトリとモジュール構成が一意対応しない**（`#[path]`・インライン `mod`・`mod.rs`/`name.rs`・入れ子）ため、ディレクトリを層の分類キーにするのは筋が悪い。
+**決定**: 層を**クレート**にする。`abi/synapse-abi-{core,suite,ext}` が各層の正本で、それぞれ `include/synapse_abi_{core,suite,ext}.h` を生成する。`abi/synapse-abi` はアンブレラで、3 層を glob 再エクスポートし `include/synapse_abi.h`（3 本を取り込む口 + 設計概要 + C 側補助定義）を生成する。`abi/synapse-abi-buildgen` は各層 build.rs が使う生成ヘルパ（cbindgen 共通設定の正本、配布物ではない）。ABI 系は `crates/` から `abi/` へ分離し、`crates/` はホスト/SDK/テストプラグインに残す。**利用面は分割前と不変** — Rust は `synapse-abi` 1 つに依存してフラットに参照し、C は `synapse_abi.h` 1 本を include する。
+**却下案**: 単一クレートのままモジュールで層を表す（ディレクトリが層の分類キーになり、Rust のモジュール構成の自由度と衝突する。cbindgen も層をまたぐ `export.exclude` の組み立てを要し、そこが最も繊細な箇所になっていた）。層を公開モジュール（`pub mod core`）として見せる（組み込み `core` クレートと衝突し、下流の `use synapse_abi::*;` を壊す＝E0659）。
+**帰結**: (1) **一方向依存（suite/ext → core）を Cargo が強制する**——`core` から上位層を参照すると `error: cyclic package dependency` で弾かれ、レビュー任せでなくなった。(2) **`export.exclude` が不要になった**——cbindgen は `parse_deps = false`（既定）で依存クレートを parse しないため、上位層ヘッダに core の型が重複出力されず名前参照だけが出る。クレート境界がそのまま分離になる。(3) 各層 build.rs は 5 行（ヘッダ名・ガード・バナー・取り込む下位層を `buildgen` に渡すだけ）。(4) **項目追加は該当クレートに宣言を書くだけ**——Rust の公開面は glob 再エクスポートが、C ヘッダは build.rs の自クレート `src/` 再帰走査が拾う（登録表を持たない）。なお `export.include` は残る: ABI クレートは宣言専用で `extern "C"` 関数を持たず、cbindgen の出力集合が `到達可能集合(functions ∪ globals ∪ constants ∪ export.include)` である以上、struct/union が到達不能になるため（クレート分割でも解消しない、実測確認済み）。(5) 自動化で黙って落ちる失敗モードには二重の網を張る——`buildgen::verify`（ソースに在るのにヘッダへ出なかった項目）と `abi/synapse-abi/tests/public_surface.rs`（glob 同士の名前衝突で項目が消える。Rust の曖昧 glob は使うまでエラーにならないため）。後者は**意図的に残した唯一の手書きリスト**で、定義ではなくガード。
+
 ---
 
 ## 2. ロードマップ (Roadmap)
@@ -287,7 +295,7 @@
 - **Open-15: ホスト取り込み範囲のスコープ**: GPU 抽象 / メモリアロケータ / 色空間 / 時間 / bbox / 数値ユーティリティ / ファイル I/O / i18n / Undo・Redo / オーディオ基盤 など、どれをホストに取り込みどれをプラグインに委ねるか。型集合 (Open-10) を超える範囲は未決。
 - **Open-16: multi-input のリンク順序**: コンポジタでは z 順になり、ユーザによる並べ替えが要る。ABI 的には `link_index` 順がホスト定義で評価中安定で足りるが、エディタ側の順序保持/並べ替え仕様は未定。
 - **Open-17: 接続必須ソケットの強制**: 現状は optional-everywhere（空を流しプラグインに一任, ADR-018）。ホスト側で「必須」を強制する required フラグを入れるかは先送り。
-- **Open-18: 生成ヘッダ（`synapse_abi.h`）の鮮度保証**: 正本は Rust（synapse-abi）で、`cargo build` の build.rs が cbindgen で `synapse_abi.h` を生成する（ヘッダはリポジトリにコミットして C 利用者へ配る成果物）。古いヘッダのコミットを防ぐため、CI で「再生成して `git diff --exit-code`」する運用に揃える（多くの Rust 製 C インターフェースの定石）。read-only / sandbox ビルドでソースディレクトリへ書き込めない問題はこの CI 運用で吸収する。CI 設定は未追加（リポジトリに CI が入った段で追加）。なお不透明ハンドル（SynNode 等）は Rust 側が PhantomData 構造体のため cbindgen が本体を出さず、前方 typedef を build.rs の after_includes で注入している（ADR-025 と関連）。
+- **Open-18: 生成ヘッダの鮮度保証**: 正本は Rust（synapse-abi）で、`cargo build` の build.rs が cbindgen でヘッダを生成する（ヘッダはリポジトリにコミットして C 利用者へ配る成果物）。**生成物は互換性の粒度に合わせて 3 層に分割してあり、1 層 = 1 クレート = 1 ヘッダで対応する**（ADR-030。`synapse-abi-core` → `synapse_abi_core.h` = 基底 ABI・版一致必須 / `synapse-abi-suite` → `synapse_abi_suite.h` = スイート・id 引き / `synapse-abi-ext` → `synapse_abi_ext.h` = 拡張・`get_extension` 引き）。`synapse-abi` はアンブレラで、3 層を glob 再エクスポートし `synapse_abi.h`（3 本を取り込む）を生成する。Rust 利用者は `synapse-abi` 1 つに依存してフラットに参照し、C 利用者は `synapse_abi.h` 1 本を include すればよい（どちらも分割前と不変）。生成ヘッダはワークスペース直下の `include/` に集約する。依存は **suite/ext → core の一方向**（`fetch_suite`/`get_extension`/`get_api` の戻り値が `const void *` に型消去され、不透明ハンドルだけが両層をつなぐことで成立）で、**クレート境界なので Cargo が循環依存として強制する**。層をモジュールではなくクレートにしたのは、Rust ではディレクトリとモジュール構成が一意対応せず、層の分類キーとして不安定なため。各層の出力対象は build.rs が自クレートの `src/` を再帰走査して導出するので、手書きの登録表は無い（`export.include` はクレートが宣言専用＝`extern "C"` 関数を持たず struct が到達不能になるため必要。`export.exclude` は `parse_deps = false` により不要）。古いヘッダのコミットを防ぐため、CI で「再生成して `git diff --exit-code`」する運用に揃える（多くの Rust 製 C インターフェースの定石）。read-only / sandbox ビルドでソースディレクトリへ書き込めない問題はこの CI 運用で吸収する。CI 設定は未追加（リポジトリに CI が入った段で追加）。なお不透明ハンドル（SynNode 等）は Rust 側が PhantomData 構造体のため cbindgen が本体を出さず、前方 typedef を build.rs の after_includes で注入している（ADR-025 と関連）。
 
 - **Open-19: `OwnedValue` の SVO ゼロアロケーション化**:
   `crates/synapse-host-abi/src/value.rs` の `OwnedValue` は、ABI 境界の SVO 最適化（ADR-006）をホスト内部の保管表現にまで引き継げていない。現状 `bytes: Vec<u8>` はサイズが ≤ポインタ幅の小型値（`bool`・`f32`・`i32` 等）であってもヒープ確保を行う。SVO の利点（「確保ゼロ・局所性・寿命 = SynValue 寿命」ADR-006）はプラグイン⇄ホスト間の**転送形式**（`SynValue`）にのみ効いており、`from_value()`/`to_value()` で変換した瞬間に失われる。また `#[derive(Clone)]` によるクローン毎にも同じアロケーションが発生する。

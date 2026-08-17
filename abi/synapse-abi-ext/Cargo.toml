@@ -1,0 +1,15 @@
+[package]
+name = "synapse-abi-ext"
+version = "0.5.0"
+edition = "2021"
+description = "Synapse plugin C ABI — 拡張層（desc->get_extension(ext_id) で取得）"
+
+[lib]
+name = "synapse_abi_ext"
+crate-type = ["rlib"]
+
+[dependencies]
+synapse-abi-core = { path = "../synapse-abi-core" }
+
+[build-dependencies]
+synapse-abi-buildgen = { path = "../synapse-abi-buildgen" }

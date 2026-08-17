@@ -1,0 +1,17 @@
+[package]
+name = "synapse-abi"
+version = "0.5.0"
+edition = "2021"
+description = "Synapse plugin C ABI — アンブレラ（3 層をまとめて再エクスポートし、synapse_abi.h を生成）"
+
+[lib]
+name = "synapse_abi"
+crate-type = ["rlib"]
+
+[dependencies]
+synapse-abi-core = { path = "../synapse-abi-core" }
+synapse-abi-ext = { path = "../synapse-abi-ext" }
+synapse-abi-suite = { path = "../synapse-abi-suite" }
+
+[build-dependencies]
+synapse-abi-buildgen = { path = "../synapse-abi-buildgen" }

@@ -9,5 +9,5 @@ name = "synapse-host-mini"
 path = "src/main.rs"
 
 [dependencies]
-synapse-abi = { path = "../synapse-abi" }
+synapse-abi = { path = "../../abi/synapse-abi" }
 libloading = "0.8"

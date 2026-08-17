@@ -9,4 +9,4 @@ name = "test_scalar_plugin"
 crate-type = ["cdylib"]
 
 [dependencies]
-synapse-abi = { path = "../synapse-abi" }
+synapse-abi = { path = "../../abi/synapse-abi" }

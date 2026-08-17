@@ -392,7 +392,41 @@ dependencies = [
 name = "synapse-abi"
 version = "0.5.0"
 dependencies = [
+ "synapse-abi-buildgen",
+ "synapse-abi-core",
+ "synapse-abi-ext",
+ "synapse-abi-suite",
+]
+
+[[package]]
+name = "synapse-abi-buildgen"
+version = "0.1.0"
+dependencies = [
  "cbindgen",
+ "syn",
+]
+
+[[package]]
+name = "synapse-abi-core"
+version = "0.5.0"
+dependencies = [
+ "synapse-abi-buildgen",
+]
+
+[[package]]
+name = "synapse-abi-ext"
+version = "0.5.0"
+dependencies = [
+ "synapse-abi-buildgen",
+ "synapse-abi-core",
+]
+
+[[package]]
+name = "synapse-abi-suite"
+version = "0.5.0"
+dependencies = [
+ "synapse-abi-buildgen",
+ "synapse-abi-core",
 ]
 
 [[package]]

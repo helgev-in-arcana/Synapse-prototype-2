@@ -8,4 +8,4 @@ description = "プラグイン側 SDK。Node トレイトと synapse_module! マ
 name = "synapse_sdk"
 
 [dependencies]
-synapse-abi = { path = "../synapse-abi" }
+synapse-abi = { path = "../../abi/synapse-abi" }
